@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}KoreComms — Activity Log{% endblock %}
+
+{% block content %}
+<div class="section-title">Agent Activity Log</div>
+<p class="meta" style="margin-bottom:1rem;">Most recent 200 actions (newest first).</p>
+
+<div class="panel">
+  <div class="panel-header"><span class="ph-diamond">◆</span> Log entries — {{ entries|length }}</div>
+  <table>
+    <thead>
+      <tr><th>Time</th><th>Action</th><th>Msg ID</th><th>Detail</th></tr>
+    </thead>
+    <tbody>
+      {% for e in entries %}
+      <tr>
+        <td class="dim" style="font-size:11px; white-space:nowrap;">{{ e.logged_at[:19] }}</td>
+        <td>
+          {% set ac = e.action %}
+          {% if ac == 'fetched' %}
+            <span style="color:var(--blue)">fetched</span>
+          {% elif ac == 'replied' %}
+            <span style="color:var(--green)">replied</span>
+          {% elif ac == 'completed' %}
+            <span style="color:var(--green)">completed</span>
+          {% elif ac == 'sent' %}
+            <span style="color:var(--amber)">sent</span>
+          {% elif ac == 'injected' %}
+            <span style="color:var(--amber)">injected</span>
+          {% elif ac == 'polled' %}
+            <span class="dim">polled</span>
+          {% else %}
+            {{ ac }}
+          {% endif %}
+        </td>
+        <td class="dim">{{ e.message_id or '—' }}</td>
+        <td class="dim" style="font-size:12px;">{{ e.detail or '' }}</td>
+      </tr>
+      {% endfor %}
+      {% if not entries %}
+      <tr><td colspan="4" class="dim" style="text-align:center; padding:1rem;">No activity yet.</td></tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

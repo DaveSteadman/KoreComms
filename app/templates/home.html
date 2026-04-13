@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}KoreComms — Messages{% endblock %}
+
+{% block content %}
+<style>
+  .conv-block { border: 1px solid var(--border); margin-bottom: 0.75rem; }
+  .conv-header {
+    display: flex; align-items: center; gap: 0.75rem;
+    padding: 0.45rem 0.85rem; background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    text-decoration: none; color: inherit;
+    transition: background .12s;
+  }
+  .conv-header:hover { background: rgba(255,255,255,.03); }
+  .conv-header .conv-subject { flex: 1; font-weight: 600; font-size: 13px; }
+  .conv-header .conv-meta { font-size: 11px; color: var(--dim); }
+  .conv-body { display: none; }
+  .conv-body.open { display: block; }
+  .msg-row {
+    display: grid;
+    grid-template-columns: 80px 1fr auto;
+    gap: 0.75rem; align-items: start;
+    padding: 0.6rem 0.85rem; border-bottom: 1px solid var(--border);
+    font-size: 12.5px;
+  }
+  .msg-row:last-child { border-bottom: none; }
+  .msg-content { white-space: pre-wrap; word-break: break-word; color: var(--text); }
+  .msg-meta { font-size: 11px; color: var(--dim); text-align: right; }
+  .msg-status-col { padding-top: 2px; }
+</style>
+
+<div class="section-title">Conversations</div>
+
+{% if not conversations %}
+  <p class="meta">No conversations yet. <a href="/compose" style="color:var(--amber)">Inject a message</a> to get started.</p>
+{% endif %}
+
+{% for conv in conversations %}
+<div class="conv-block">
+  <a class="conv-header" href="/conversation/{{ conv.id }}">
+    <span class="conv-subject">{{ conv.subject or conv.conv_subject or "(no subject)" }}</span>
+    <span class="badge badge-{{ conv.interface_type }}">{{ conv.interface_name }}</span>
+    {% if conv.latest %}
+      <span class="badge badge-{{ conv.latest.status }}">{{ conv.latest.status }}</span>
+    {% endif %}
+    <span class="conv-meta">{{ conv.created_at[:16] }}</span>
+  </a>
+  <div class="conv-body {% if conv.latest and conv.latest.status in ('queued','processing') %}open{% endif %}">
+    {% for msg in conv.thread %}
+    <div class="msg-row">
+      <div class="msg-status-col">
+        <span class="badge badge-{{ msg.direction }}">{{ msg.direction }}</span>
+      </div>
+      <div>
+        <div class="msg-content">{{ msg.content }}</div>
+        {% if msg.sender %}<p class="meta" style="margin-top:0.25rem;">from {{ msg.sender }}</p>{% endif %}
+      </div>
+      <div class="msg-meta">
+        <span class="badge badge-{{ msg.status }}">{{ msg.status }}</span><br>
+        {{ msg.received_at[:16] }}
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endfor %}
+
+{% if conversations|length == 50 %}
+<div class="gap-row" style="margin-top:0.75rem;">
+  <a class="btn btn-sm" href="/?offset={{ offset + 50 }}">Next page →</a>
+  {% if offset > 0 %}<a class="btn btn-sm" href="/?offset={{ offset - 50 }}">← Previous</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}KoreComms — State Editor{% endblock %}
+
+{% block content %}
+<div class="section-title">Message State Editor</div>
+<p class="meta" style="margin-bottom:1rem;">
+  Manually override message status. Re-queuing a message puts it back on the agent queue.
+</p>
+
+<div class="panel">
+  <div class="panel-header"><span class="ph-diamond">◆</span> All Messages</div>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Interface</th><th>Direction</th><th>Subject / Sender</th>
+        <th>Status</th><th>Received</th><th>Actions</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for msg in messages %}
+      <tr>
+        <td class="dim">{{ msg.id }}</td>
+        <td>{{ msg.interface_name }}</td>
+        <td><span class="badge badge-{{ msg.direction }}">{{ msg.direction }}</span></td>
+        <td>
+          <div>{{ msg.subject or "(no subject)" }}</div>
+          {% if msg.sender %}<div class="dim" style="font-size:11px;">{{ msg.sender }}</div>{% endif %}
+        </td>
+        <td><span class="badge badge-{{ msg.status }}">{{ msg.status }}</span></td>
+        <td class="dim" style="font-size:11px;">{{ msg.received_at[:16] }}</td>
+        <td>
+          <div class="gap-row">
+            {% if msg.direction == 'inbound' and msg.status not in ('queued','processing') %}
+            <form method="POST" action="/state/{{ msg.id }}/requeue" style="display:inline">
+              <button class="btn btn-sm btn-primary" type="submit">Re-queue</button>
+            </form>
+            {% endif %}
+            <form method="POST" action="/state/{{ msg.id }}/set-status" style="display:inline; display:flex; gap:0.4rem; align-items:center;">
+              <select name="new_status" style="width:110px; padding:0.2rem 0.4rem;">
+                {% for s in ('queued','processing','replied','ignored') %}
+                <option value="{{ s }}" {% if msg.status == s %}selected{% endif %}>{{ s }}</option>
+                {% endfor %}
+              </select>
+              <button class="btn btn-sm" type="submit">Set</button>
+            </form>
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if messages|length == 100 %}
+<div class="gap-row">
+  <a class="btn btn-sm" href="/state?offset={{ offset + 100 }}">Next page →</a>
+  {% if offset > 0 %}<a class="btn btn-sm" href="/state?offset={{ offset - 100 }}">← Previous</a>{% endif %}
+</div>
+{% endif %}
+{% endblock %}

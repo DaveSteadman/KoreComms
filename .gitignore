@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.venv/
+venv/
+*.egg-info/
+
+# Runtime data (DB, logs)
+Data/
+
+# Secrets – never commit
+config/secret.key
+
+# IDE
+.vscode/
+.idea/

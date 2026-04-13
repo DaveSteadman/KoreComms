@@ -1,0 +1,197 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}KoreComms{% endblock %}</title>
+  <style>
+    :root {
+      --bg:      #0b0c10;
+      --panel:   #0f1117;
+      --border:  #1e2233;
+      --text:    #c5c8d0;
+      --dim:     #4e5466;
+      --green:   #4af77a;
+      --amber:   #f0c060;
+      --blue:    #6eb5ff;
+      --red:     #ff5f5f;
+      --header-h: 42px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: 'Cascadia Code', 'Fira Code', 'Courier New', monospace;
+      background: var(--bg); color: var(--text);
+      font-size: 13px; line-height: 1.55;
+    }
+
+    /* ─── header bar ─────────────────────────────── */
+    header {
+      height: var(--header-h);
+      background: var(--panel);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center;
+      padding: 0 1.5rem; gap: 1.5rem;
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo { font-size: 1rem; font-weight: 700; letter-spacing: 0.06em;
+      text-decoration: none; flex-shrink: 0; color: var(--text); }
+    .logo .l-kore { color: var(--text); }
+    .logo .l-comms { color: var(--amber); }
+    .dot-live {
+      width: 7px; height: 7px; border-radius: 50%;
+      background: var(--red); box-shadow: 0 0 6px var(--red);
+      display: inline-block; flex-shrink: 0;
+      transition: background .4s, box-shadow .4s;
+    }
+    .dot-live.live {
+      background: var(--green); box-shadow: 0 0 6px var(--green);
+    }
+    nav { margin-left: auto; display: flex; gap: 1.25rem; }
+    nav a { color: var(--dim); text-decoration: none; font-size: 12px; letter-spacing: 0.04em; }
+    nav a:hover { color: var(--text); }
+    nav a.active { color: var(--amber); }
+
+    .tag {
+      font-size: 11px; letter-spacing: 0.04em;
+      padding: 1px 6px; border: 1px solid var(--border); color: var(--dim);
+    }
+
+    /* ─── layout ─────────────────────────────────── */
+    main { padding: 1.5rem 2rem; max-width: 1320px; margin: 0 auto; }
+
+    /* ─── panel / card ───────────────────────────── */
+    .panel { border: 1px solid var(--border); background: var(--panel); margin-bottom: 1.25rem; }
+    .panel-header {
+      display: flex; align-items: center; gap: 0.6rem;
+      padding: 0.4rem 0.85rem; border-bottom: 1px solid var(--border);
+      color: var(--dim); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .panel-header .ph-diamond { color: var(--amber); }
+    .panel-body { padding: 1rem 1.1rem; }
+
+    /* ─── table ──────────────────────────────────── */
+    table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    th, td { text-align: left; padding: 0.4rem 0.75rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--dim); font-weight: 400; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover td { background: rgba(255,255,255,.025); }
+
+    /* ─── forms ──────────────────────────────────── */
+    form { display: flex; flex-direction: column; gap: 0.6rem; }
+    label { font-size: 11px; color: var(--dim); letter-spacing: 0.05em; text-transform: uppercase; }
+    input[type=text], input[type=email], input[type=number], input[type=password],
+    textarea, select {
+      padding: 0.35rem 0.6rem;
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border);
+      font-family: inherit; font-size: 12.5px; width: 100%; outline: none;
+    }
+    input:focus, select:focus, textarea:focus { border-color: var(--amber); }
+    input::placeholder, textarea::placeholder { color: var(--dim); }
+    textarea { resize: vertical; min-height: 100px; }
+
+    /* ─── buttons ────────────────────────────────── */
+    .btn {
+      display: inline-block; padding: 0.3rem 0.9rem;
+      font-family: inherit; font-size: 12px; letter-spacing: 0.06em;
+      cursor: pointer; border: 1px solid var(--border); background: transparent;
+      color: var(--text); text-decoration: none; text-transform: uppercase;
+      transition: border-color .12s, color .12s;
+    }
+    .btn:hover { border-color: var(--amber); color: var(--amber); }
+    .btn-primary { border-color: var(--amber); color: var(--amber); }
+    .btn-primary:hover { background: rgba(240,192,96,.15); }
+    .btn-danger { border-color: var(--red); color: var(--red); }
+    .btn-danger:hover { background: rgba(255,95,95,.12); }
+    .btn-sm { padding: 0.15rem 0.55rem; font-size: 11px; }
+
+    /* ─── status badges ──────────────────────────── */
+    .badge {
+      display: inline-block; font-size: 10px; letter-spacing: 0.07em;
+      padding: 1px 6px; border: 1px solid; text-transform: uppercase;
+    }
+    .badge-queued    { border-color: var(--blue);  color: var(--blue); }
+    .badge-processing{ border-color: var(--amber); color: var(--amber); }
+    .badge-replied   { border-color: var(--green); color: var(--green); }
+    .badge-ignored   { border-color: var(--dim);   color: var(--dim); }
+    .badge-inbound   { border-color: var(--blue);  color: var(--blue); }
+    .badge-outbound  { border-color: var(--green); color: var(--green); }
+
+    /* ─── flash / info banner ────────────────────── */
+    .flash {
+      padding: 0.5rem 1rem; margin-bottom: 1rem;
+      border: 1px solid var(--amber); color: var(--amber); font-size: 12px;
+    }
+
+    /* ─── misc utility ───────────────────────────── */
+    .dim { color: var(--dim); }
+    .mono { font-family: inherit; }
+    p.meta { font-size: 11.5px; color: var(--dim); margin-bottom: 0.5rem; }
+    .gap-row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
+    .section-title {
+      font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase;
+      color: var(--dim); margin-bottom: 0.75rem; border-bottom: 1px solid var(--border);
+      padding-bottom: 0.3rem;
+    }
+  </style>
+  {% block head %}{% endblock %}
+</head>
+<body>
+<header>
+  <a class="logo" href="/"><span class="l-kore">Kore</span><span class="l-comms">Comms</span></a>
+  <span class="dot-live" id="status-dot" title="Connecting..."></span>
+  <span class="tag">{{ version }}</span>
+  <nav>
+    <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Messages</a>
+    <a href="/compose" {% if request.url.path == "/compose" %}class="active"{% endif %}>Compose</a>
+    <a href="/connections" {% if request.url.path.startswith("/connections") %}class="active"{% endif %}>Connections</a>
+    <a href="/state" {% if request.url.path == "/state" %}class="active"{% endif %}>State</a>
+    <a href="/activity" {% if request.url.path == "/activity" %}class="active"{% endif %}>Activity</a>
+  </nav>
+</header>
+<main>
+  {% block content %}{% endblock %}
+</main>
+<script>
+  // ─── live status dot ─────────────────────────────
+  (function () {
+    const dot = document.getElementById('status-dot');
+    // Restore last-known state immediately to avoid red flash on navigation.
+    if (sessionStorage.getItem('kc-live') === '1') {
+      dot.classList.add('live');
+      dot.title = 'Connected';
+    }
+    function ping() {
+      fetch('/status', { method: 'GET', cache: 'no-store' })
+        .then(r => {
+          if (r.ok) {
+            dot.classList.add('live');
+            dot.title = 'Connected';
+            sessionStorage.setItem('kc-live', '1');
+          } else {
+            dot.classList.remove('live');
+            dot.title = 'Error ' + r.status;
+            sessionStorage.removeItem('kc-live');
+          }
+        })
+        .catch(() => {
+          dot.classList.remove('live');
+          dot.title = 'Disconnected';
+          sessionStorage.removeItem('kc-live');
+        });
+    }
+    ping();
+    setInterval(ping, 5000);
+  })();
+
+  // ─── stepper controls ────────────────────────────
+  document.querySelectorAll('.num-stepper').forEach(w => {
+    const inp = w.querySelector('input[type=number]');
+    w.querySelector('.step-up')?.addEventListener('click', () => { inp.value = +inp.value + 1; });
+    w.querySelector('.step-dn')?.addEventListener('click', () => { inp.value = Math.max(+inp.min||0, +inp.value - 1); });
+  });
+</script>
+{% block scripts %}{% endblock %}
+</body>
+</html>

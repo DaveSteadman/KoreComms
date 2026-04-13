@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}KoreComms — Connections{% endblock %}
+
+{% block content %}
+<div class="section-title">Interface Connections</div>
+
+{% if flash %}
+<div class="flash">{{ flash }}</div>
+{% endif %}
+
+<div class="panel">
+  <div class="panel-header"><span class="ph-diamond">◆</span> Configured Interfaces</div>
+  <table>
+    <thead>
+      <tr>
+        <th>ID</th><th>Type</th><th>Name</th><th>Enabled</th><th>Created</th><th></th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for iface in interfaces %}
+      <tr>
+        <td class="dim">{{ iface.id }}</td>
+        <td><span class="badge badge-{{ iface.type }}">{{ iface.type }}</span></td>
+        <td>{{ iface.name }}</td>
+        <td>{% if iface.enabled %}<span style="color:var(--green)">●</span>{% else %}<span class="dim">○</span>{% endif %}</td>
+        <td class="dim">{{ iface.created_at[:16] }}</td>
+        <td>
+          <div class="gap-row">
+            <a class="btn btn-sm" href="/connections/{{ iface.id }}">Edit</a>
+            {% if iface.type != 'manual' %}
+            <form method="POST" action="/connections/{{ iface.id }}/delete" style="display:inline">
+              <button class="btn btn-sm btn-danger" type="submit"
+                onclick="return confirm('Delete connection {{ iface.name }}?')">Delete</button>
+            </form>
+            {% endif %}
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% if available_types %}
+<div class="gap-row">
+  <span class="dim" style="font-size:12px;">Add connection:</span>
+  {% for t in available_types %}
+  <a class="btn btn-sm btn-primary" href="/connections/new?type={{ t }}">+ {{ t }}</a>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

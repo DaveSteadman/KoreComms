@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}KoreComms — {% if iface %}Edit{% else %}New{% endif %} Connection{% endblock %}
+
+{% block content %}
+<div class="section-title">{% if iface %}Edit Connection — {{ iface.name }}{% else %}New {{ iface_type }} Connection{% endif %}</div>
+
+<div class="panel" style="max-width:680px;">
+  <div class="panel-header"><span class="ph-diamond">◆</span> {{ iface_type|upper }} Settings</div>
+  <div class="panel-body">
+
+    <form method="POST" action="{% if iface %}/connections/{{ iface.id }}{% else %}/connections/new{% endif %}">
+      {% if not iface %}
+      <input type="hidden" name="iface_type" value="{{ iface_type }}">
+      {% endif %}
+
+      <label for="name">Connection Name</label>
+      <input type="text" id="name" name="name" value="{{ iface.name if iface else '' }}"
+             placeholder="My Gmail Account" required>
+
+      {% if iface_type == "gmail" %}
+      <label for="client_id" style="margin-top:0.6rem;">Google OAuth Client ID</label>
+      <input type="text" id="client_id" name="client_id"
+             value="" placeholder="{% if iface and config.client_id %}(stored — paste to update){% else %}Paste from Google Cloud Console{% endif %}">
+
+      <label for="client_secret" style="margin-top:0.4rem;">Google OAuth Client Secret</label>
+      <input type="password" id="client_secret" name="client_secret"
+             value="" placeholder="{% if iface and config.client_secret %}(stored — paste to update){% else %}Paste from Google Cloud Console{% endif %}">
+
+      <p class="meta" style="margin-top:0.3rem;">
+        Register redirect URI:
+        <code style="color:var(--amber)">http://&lt;host&gt;:{{ request.url.port or 8900 }}/gmail-callback</code>
+        in your Google Cloud Console OAuth credentials.
+      </p>
+      {% endif %}
+
+      <label for="poll_interval" style="margin-top:0.6rem;">Poll Interval (seconds)</label>
+      <input type="number" id="poll_interval" name="poll_interval"
+             value="{{ poll_interval }}" min="10" max="3600" style="width:120px;">
+
+      {% if iface %}
+      <label style="margin-top:0.6rem; display:flex; gap:0.5rem; align-items:center; text-transform:none; font-size:13px; cursor:pointer;">
+        <input type="checkbox" name="enabled" value="on" {% if iface.enabled %}checked{% endif %} style="width:auto;">
+        Enabled
+      </label>
+      {% endif %}
+
+      <div class="gap-row" style="margin-top:0.75rem;">
+        <button class="btn btn-primary" type="submit">{% if iface %}Save Changes{% else %}Create Connection{% endif %}</button>
+        <a class="btn" href="/connections">Cancel</a>
+      </div>
+    </form>
+
+    {% if iface and iface_type == "gmail" %}
+    <hr style="border:none; border-top:1px solid var(--border); margin:1.25rem 0;">
+    <div class="section-title">Gmail Authorisation</div>
+    {% if gmail_authorized %}
+      <p class="meta" style="color:var(--green); margin-bottom:0.75rem;">✓ Authorized — refresh token stored.</p>
+    {% else %}
+      <p class="meta" style="margin-bottom:0.75rem;">
+        Save your client credentials above first, then click Authorize to grant Gmail access.
+      </p>
+    {% endif %}
+    <a class="btn btn-primary" href="/connections/{{ iface.id }}/gmail-authorize">
+      {% if gmail_authorized %}Re-authorize{% else %}Authorize Gmail{% endif %}
+    </a>
+    {% endif %}
+
+  </div>
+</div>
+{% endblock %}
