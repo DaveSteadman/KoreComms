@@ -106,14 +106,13 @@ class GmailInterface(BaseInterface):
     # BaseInterface implementation
     # ------------------------------------------------------------------
 
-    def poll(self) -> list[int]:
+    def poll(self) -> list[dict]:
         cfg = self._decrypt_config()
         if not cfg.get("refresh_token"):
             logger.warning("Gmail interface %d: no refresh token — skipping poll", self.interface_id)
             return []
 
         last_epoch = int(cfg.get("last_poll_epoch", 0))
-        # Add a 30-second buffer to avoid missing messages at boundary.
         after = max(0, last_epoch - 30)
         query = f"is:unread after:{after}" if after else "is:unread"
 
@@ -126,10 +125,10 @@ class GmailInterface(BaseInterface):
             logger.error("Gmail poll failed for interface %d: %s", self.interface_id, exc)
             return []
 
-        new_ids: list[int] = []
+        messages: list[dict] = []
         for ref in result.get("messages", []):
             gm_id = ref["id"]
-            if db.message_external_id_exists(gm_id):
+            if db.external_message_exists(gm_id):
                 continue
             try:
                 gm_msg = service.users().messages().get(
@@ -141,20 +140,18 @@ class GmailInterface(BaseInterface):
 
             headers = gm_msg.get("payload", {}).get("headers", [])
             subject = self._header_value(headers, "Subject") or "(no subject)"
-            sender = self._header_value(headers, "From")
+            sender  = self._header_value(headers, "From")
             thread_id = gm_msg.get("threadId", gm_id)
             body = self._extract_body(gm_msg.get("payload", {}))
 
-            conv_id = db.conversation_find_or_create(self.interface_id, thread_id, subject)
-            msg_id = db.message_create(
-                conv_id=conv_id,
-                direction="inbound",
-                content=body,
-                subject=subject,
-                sender=sender,
-                external_message_id=gm_id,
-            )
-            new_ids.append(msg_id)
+            messages.append({
+                "external_message_id": gm_id,
+                "external_thread_id":  thread_id,
+                "sender":              sender,
+                "subject":             subject,
+                "content":             body,
+                "channel_type":        "email",
+            })
 
         # Update last_poll_epoch in the interface config.
         raw_cfg = json.loads(self.config.get("config_json", "{}"))
@@ -166,20 +163,18 @@ class GmailInterface(BaseInterface):
             bool(self.config.get("enabled", True)),
         )
 
-        return new_ids
+        return messages
 
-    def send_reply(self, message_id: int, content: str) -> int:
-        msg = db.message_get(message_id)
-        if msg is None:
-            raise ValueError(f"Message {message_id} not found")
+    def route_reply(self, conversation_id: int, content: str) -> None:
+        conv     = db.conversation_get(conversation_id)
+        last_msg = db.external_message_get_last_inbound(conversation_id)
 
-        conv = db.conversation_get(msg["conversation_id"])
         thread_id = conv["external_thread_id"] if conv else None
-        to = msg.get("sender", "")
-        subject = msg.get("subject", "")
+        to        = last_msg["sender_display"] if last_msg else ""
+        subject   = conv.get("subject", "") if conv else ""
 
         mime = MIMEText(content)
-        mime["To"] = to
+        mime["To"]      = to
         mime["Subject"] = f"Re: {subject}" if not subject.startswith("Re:") else subject
         raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
 
@@ -193,21 +188,9 @@ class GmailInterface(BaseInterface):
         except HttpError as exc:
             raise RuntimeError(f"Gmail send failed: {exc}") from exc
 
-        out_id = db.message_create(
-            conv_id=msg["conversation_id"],
-            direction="outbound",
-            content=content,
-            subject=f"Re: {subject}",
-            sender="me",
-            recipient=to,
-            status="replied",
-        )
-        db.log_activity("replied", message_id, f"Gmail reply → {to}")
-        return out_id
-
-    def send_new(self, recipient: str, subject: str, content: str) -> int:
+    def send_new(self, recipient: str, subject: str, content: str) -> dict:
         mime = MIMEText(content)
-        mime["To"] = recipient
+        mime["To"]      = recipient
         mime["Subject"] = subject
         raw = base64.urlsafe_b64encode(mime.as_bytes()).decode()
 
@@ -219,19 +202,10 @@ class GmailInterface(BaseInterface):
         except HttpError as exc:
             raise RuntimeError(f"Gmail send_new failed: {exc}") from exc
 
-        thread_id = sent.get("threadId")
-        conv_id = db.conversation_find_or_create(self.interface_id, thread_id, subject)
-        out_id = db.message_create(
-            conv_id=conv_id,
-            direction="outbound",
-            content=content,
-            subject=subject,
-            sender="me",
-            recipient=recipient,
-            status="replied",
-        )
-        db.log_activity("sent", out_id, f"Gmail new message to {recipient}")
-        return out_id
+        return {
+            "external_thread_id":  sent.get("threadId", sent.get("id")),
+            "external_message_id": sent.get("id"),
+        }
 
 
 # ---------------------------------------------------------------------------

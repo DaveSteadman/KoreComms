@@ -175,7 +175,7 @@
     try {
       const res = await fetch(`/api/conversation/${convId}`, { cache: 'no-store' });
       if (!res.ok) return;
-      const { thread } = await res.json();
+      const { conversation, thread } = await res.json();
 
       // Update status badges on existing messages.
       thread.forEach(m => { if (knownIds.has(m.id)) refreshBadge(m.id, m.status); });
@@ -189,13 +189,13 @@
       });
       if (newMsgs.length) scrollDown(false);
 
-      // Agent status indicator.
-      const isProcessing = thread.some(m => m.status === 'processing');
-      const isQueued = thread.some(m => m.status === 'queued' && m.direction === 'inbound');
-      if (isProcessing) {
+      // Agent status indicator — based on KC message statuses.
+      const hasDraft = thread.some(m => m.direction === 'outbound' && m.status === 'draft');
+      const lastMsg  = thread.length > 0 ? thread[thread.length - 1] : null;
+      if (hasDraft) {
+        statusEl.innerHTML = '<span class="agent-thinking">Routing reply…</span>';
+      } else if (lastMsg && lastMsg.direction === 'inbound') {
         statusEl.innerHTML = '<span class="agent-thinking">Agent is thinking…</span>';
-      } else if (isQueued) {
-        statusEl.innerHTML = '<span class="agent-thinking">Queued, waiting for agent…</span>';
       } else {
         statusEl.textContent = '';
       }

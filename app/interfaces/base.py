@@ -2,7 +2,7 @@
 
 To add a new interface type:
   1. Subclass BaseInterface in a new module under app/interfaces/.
-  2. Implement poll(), send_reply(), and send_new().
+  2. Implement poll(), route_reply(), and send_new().
   3. Register the type string in app/interfaces/registry.py.
 """
 from __future__ import annotations
@@ -19,20 +19,38 @@ class BaseInterface(ABC):
         self.config = config
 
     @abstractmethod
-    def poll(self) -> list[int]:
-        """Fetch new inbound messages.
+    def poll(self) -> list[dict]:
+        """Fetch new inbound messages from this channel.
 
-        Inserts discovered messages into the database and returns the list of
-        new message IDs.  Must be idempotent (safe to call repeatedly).
+        Returns a list of message dicts; each must contain:
+            external_message_id  str       – stable, unique ID for de-duplication
+            external_thread_id   str       – groups messages into a conversation
+            sender               str       – display name / address
+            subject              str|None  – subject line if applicable
+            content              str       – plain-text body
+            channel_type         str       – e.g. "email", "manual"
+
+        Must be idempotent (safe to call repeatedly).
+        Must NOT write to the database directly.
         """
         ...
 
     @abstractmethod
-    def send_reply(self, message_id: int, content: str) -> int:
-        """Send a reply to *message_id* and return the new outbound message ID."""
+    def route_reply(self, conversation_id: int, content: str) -> None:
+        """Deliver *content* as a reply through this channel.
+
+        *conversation_id* is the local KoreComms conversation ID. The adapter
+        may read routing metadata (external thread ID, recipient, etc.) from
+        the database, but must not write message content.
+        """
         ...
 
     @abstractmethod
-    def send_new(self, recipient: str, subject: str, content: str) -> int:
-        """Send a brand-new outbound message and return the new message ID."""
+    def send_new(self, recipient: str, subject: str, content: str) -> dict:
+        """Send a brand-new outbound message through this channel.
+
+        Returns a dict containing at minimum:
+            external_thread_id  str  – channel reference for future replies
+            external_message_id str  – unique ID of the sent message
+        """
         ...

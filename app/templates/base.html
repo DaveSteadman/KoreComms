@@ -143,10 +143,9 @@
   <span class="dot-live" id="status-dot" title="Connecting..."></span>
   <span class="tag">{{ version }}</span>
   <nav>
-    <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Messages</a>
+    <a href="/" {% if request.url.path == "/" %}class="active"{% endif %}>Conversations</a>
     <a href="/compose" {% if request.url.path == "/compose" %}class="active"{% endif %}>Compose</a>
     <a href="/connections" {% if request.url.path.startswith("/connections") %}class="active"{% endif %}>Connections</a>
-    <a href="/state" {% if request.url.path == "/state" %}class="active"{% endif %}>State</a>
     <a href="/activity" {% if request.url.path == "/activity" %}class="active"{% endif %}>Activity</a>
   </nav>
 </header>

@@ -9,7 +9,7 @@ _DEFAULTS: dict = {
     "log_level": "info",
     "poll_interval": 60,
     "data_dir": "Data",
-    "maf_url": "",
+    "koreconversation_url": "http://localhost:8700",
 }
 
 
