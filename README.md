@@ -1,6 +1,6 @@
 # KoreComms
 
-> External communication hub for [MiniAgentFramework](../MiniAgentFramework) — normalises inbound messages from heterogeneous channels into a single, sequentially-processed queue and routes replies back out via the correct channel.
+> External communication hub for [MiniAgentFramework](../MiniAgentFramework) — owns external-channel routing in its own SQLite database and bridges those conversations to KoreConversation by stable local conversation names.
 
 ![KoreComms chat interface](progress/Screenshot_13-4-2026_223926_localhost.jpeg)
 
@@ -16,15 +16,16 @@ KoreComms is one of three co-operating local services:
 | [MiniAgentFramework](../MiniAgentFramework) | LLM wrapper with context and orchestration |
 | **KoreComms** | External communication hub (this service) |
 
-The agent never talks to Gmail, Outlook, or any other channel directly. KoreComms owns all that complexity. The agent polls a single clean REST API to receive the next message and post a reply.
+The agent never talks to Gmail, Outlook, or any other channel directly. KoreComms owns all that complexity while KoreConversation owns canonical thread state and cross-service events.
 
 ---
 
 ## Features
 
-- **Unified message queue** — all interface types (Gmail, Manual, future channels) feed one thread-safe FIFO queue; the agent processes messages one at a time
-- **Full conversation threading** — every `/next-message` response includes the full prior thread so the agent has complete context without managing it itself
-- **Chat UI** — per-conversation view with live polling, iPhone-style message alignment, and a compose bar (`Enter` to send, `Shift+Enter` for new line)
+- **Event-driven coordination** — inbound messages become KoreConversation events and outbound delivery is triggered from `outbound_ready` events instead of full-thread scans
+- **Full conversation threading** — conversation state and message history live in KoreConversation, and KoreComms reads the canonical thread on demand
+- **Local-first conversation identity** — KoreComms keeps its own conversation rows and uses a stable `conversation_name` to find or recreate the matching agent-side conversation
+- **Chat UI** — per-conversation view with event-driven live updates, command-style input history on `Up` / `Down`, and a compose bar (`Enter` to send, `Shift+Enter` for new line)
 - **Gmail integration** — OAuth2 polling, reply-in-thread, de-duplication by Gmail message ID
 - **Manual interface** — inject a synthetic message via the WebUI; always present, zero external dependencies
 - **Adapter pattern** — adding a new channel (Outlook, SMS, Slack…) is one file and one registry entry; no core changes
@@ -71,6 +72,8 @@ Edit `config/default.json` (created automatically on first run with defaults):
   "port": 8900,
   "log_level": "info",
   "poll_interval": 60,
+   "event_poll_interval": 1.0,
+   "missing_kc_conversation_policy": "recreate",
   "data_dir": "Data",
   "maf_url": "http://localhost:8901"
 }
@@ -81,6 +84,8 @@ Edit `config/default.json` (created automatically on first run with defaults):
 | `host` | `0.0.0.0` | Bind address |
 | `port` | `8900` | HTTP port |
 | `poll_interval` | `60` | Gmail poll interval in seconds |
+| `event_poll_interval` | `1.0` | How often KoreComms checks KoreConversation for outbound delivery events |
+| `missing_kc_conversation_policy` | `recreate` | What to do if the linked KoreConversation record is gone: `recreate` or `abort` |
 | `data_dir` | `Data` | SQLite database directory |
 | `maf_url` | _(empty)_ | MiniAgentFramework base URL — enables agent session cleanup on conversation delete |
 
@@ -92,11 +97,10 @@ MiniAgentFramework communicates with KoreComms exclusively via REST:
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/next-message` | GET | Dequeue the next queued message with full thread. Returns 204 if queue is empty. |
-| `/api/reply` | POST | Send a reply via the originating channel. Body: `{ message_id, content }` |
-| `/api/complete` | POST | Mark message as `replied` or `ignored`. Body: `{ message_id, status }` |
 | `/api/send` | POST | Start a new outbound message on any interface. Body: `{ interface_id, recipient, subject, content }` |
 | `/api/conversation/{id}` | GET | Return the full conversation thread as JSON (used by the live chat UI). |
+| `/api/conversation/{id}/detail` | GET | Return local conversation metadata, current KC thread, events, and sync status in one response. |
+| `/api/conversation/{id}/send` | POST | Append a human message to the linked agent conversation. Body: `{ content, if_missing? }` where `if_missing` is `abort` or `recreate`. |
 | `/status` | GET | Health check — returns version and queue depth. |
 
 ---
@@ -107,18 +111,19 @@ MiniAgentFramework communicates with KoreComms exclusively via REST:
 [External Source / Human]
          │
          ▼
-      QUEUED           ← arrives from an interface or chat compose bar
+      RECEIVED         ← arrives from an interface or chat compose bar
          │
          ▼
-    PROCESSING         ← agent called GET /api/next-message; queue locked
+   KC EVENTED         ← KoreConversation raises `response_needed`
          │
          ▼
-      HANDLED
-       ├── replied      ← agent called POST /api/reply then POST /api/complete
-       └── ignored      ← agent called POST /api/complete (no reply)
+   AGENT WRITES DRAFT ← MiniAgentFramework appends outbound draft
+         │
+         ▼
+   OUTBOUND_READY     ← KoreComms claims event and routes the reply externally
 ```
 
-Only one message is in PROCESSING at a time. The queue will not issue the next message until the current one is completed.
+Only one message is in `agent_processing` for a conversation at a time. KoreConversation manages that coordination through its events table.
 
 ---
 
@@ -141,11 +146,11 @@ Only one message is in PROCESSING at a time. The queue will not issue the next m
 2. Register it in `app/interfaces/registry.py`: `REGISTRY["mytype"] = MyTypeInterface`
 3. Add any credential fields to the connection edit form in `connection_edit.html`
 
-No changes to the queue, API, or database schema are required.
+No changes to KoreComms routing logic are required.
 
 ---
 
 ## Related Repos
 
-- [MiniAgentFramework](../MiniAgentFramework) — the agent that consumes this queue
+- [MiniAgentFramework](../MiniAgentFramework) — the agent that processes KoreConversation events
 - [KoreData](../KoreData) — data provider used alongside the agent

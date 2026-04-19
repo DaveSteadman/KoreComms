@@ -8,6 +8,8 @@ _DEFAULTS: dict = {
     "port": 8900,
     "log_level": "info",
     "poll_interval": 60,
+    "event_poll_interval": 1.0,
+    "missing_kc_conversation_policy": "recreate",
     "data_dir": "Data",
     "koreconversation_url": "http://localhost:8700",
 }

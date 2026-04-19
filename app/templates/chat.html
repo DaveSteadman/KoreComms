@@ -20,6 +20,7 @@
     <a href="/" class="chat-back">← Messages</a>
     <span class="chat-subj">{{ conv.subject or "(no subject)" }}</span>
     <span class="badge badge-{{ iface.type }}">{{ iface.name }}</span>
+    <span class="tag" style="font-size:10px; color:var(--dim);">{{ conv.conversation_name or ("kccomms:" ~ conv.id) }}</span>
     <span class="tag" style="margin-left:auto; font-size:10px; color:var(--dim);">conv #{{ conv.id }}</span>
     <form method="post" action="/conversation/{{ conv.id }}/delete"
           onsubmit="return confirm('Delete this entire conversation and its agent memory? This cannot be undone.')">
@@ -129,13 +130,21 @@
 <script>
 (function () {
   const convId = {{ conv.id }};
+  let kcConvId = {{ (kc_conv.get('id') if kc_conv else None) | tojson }};
+  let kcStatus = {{ ('linked' if kc_conv else 'missing') | tojson }};
+  let missingPolicy = 'recreate';
   const msgsEl = document.getElementById('chat-messages');
   const statusEl = document.getElementById('agent-status');
+  const formEl = document.getElementById('chat-form');
+  const inputEl = document.getElementById('chat-input');
+  const sendBtn = formEl.querySelector('button[type="submit"]');
+  const endEl = document.getElementById('chat-end');
+  let eventSource = null;
+  let refreshTimer = null;
+  let historyEntries = {{ (kc_conv.get('input_history', []) if kc_conv else []) | tojson }};
+  let historyCursor = historyEntries.length;
+  let historyDraft = '';
 
-  // Track known message IDs so we can append only new ones.
-  const knownIds = new Set([{% for m in thread %}{{ m.id }},{% endfor %}]);
-
-  // ── helpers ──────────────────────────────────────
   function esc(str) {
     return String(str ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
@@ -145,74 +154,209 @@
     if (force || near) msgsEl.scrollTop = msgsEl.scrollHeight;
   }
 
-  function makeBubble(msg) {
-    const row = document.createElement('div');
-    row.className = `bubble-row ${msg.direction}`;
-    row.dataset.msgId = msg.id;
-    const sender = msg.sender ? `<span class="bm-sender">${esc(msg.sender)}</span>` : '';
-    const time = (msg.received_at || '').slice(0, 16);
-    row.innerHTML = `
-      <div class="bubble">
-        <div class="bubble-content">${esc(msg.content)}</div>
-        <div class="bubble-meta">
-          ${sender}
-          <span>${esc(time)}</span>
-          <span class="badge badge-${esc(msg.status)}">${esc(msg.status)}</span>
-        </div>
-      </div>`;
-    return row;
+  function renderThread(thread, forceScroll) {
+    const shouldStick = forceScroll || (msgsEl.scrollHeight - msgsEl.scrollTop - msgsEl.clientHeight < 150);
+    const html = thread.map(msg => {
+      const sender = msg.sender ? `<span class="bm-sender">${esc(msg.sender)}</span>` : '';
+      const time = (msg.received_at || '').slice(0, 16);
+      return `
+        <div class="bubble-row ${esc(msg.direction)}" data-msg-id="${esc(msg.id)}">
+          <div class="bubble">
+            <div class="bubble-content">${esc(msg.content)}</div>
+            <div class="bubble-meta">
+              ${sender}
+              <span>${esc(time)}</span>
+              <span class="badge badge-${esc(msg.status)}">${esc(msg.status)}</span>
+            </div>
+          </div>
+        </div>`;
+    }).join('');
+    let node = msgsEl.firstChild;
+    while (node && node !== endEl) {
+      const next = node.nextSibling;
+      msgsEl.removeChild(node);
+      node = next;
+    }
+    endEl.insertAdjacentHTML('beforebegin', html);
+    if (shouldStick) scrollDown(true);
   }
 
-  function refreshBadge(msgId, status) {
-    const row = msgsEl.querySelector(`[data-msg-id="${msgId}"]`);
-    if (!row) return;
-    const badge = row.querySelector('.badge');
-    if (badge) { badge.className = `badge badge-${status}`; badge.textContent = status; }
+  function setHistoryEntries(entries) {
+    historyEntries = Array.isArray(entries) ? entries : [];
+    historyCursor = historyEntries.length;
+    historyDraft = inputEl.value;
   }
 
-  // ── polling ──────────────────────────────────────
-  async function poll() {
+  function renderStatus(kcConversation, thread, events) {
+    if (kcStatus === 'missing') {
+      const action = missingPolicy === 'abort' ? 'abort' : 'create a new agent conversation';
+      statusEl.innerHTML = `<span class="agent-thinking">Agent conversation missing. Next send will ${esc(action)}.</span>`;
+      return;
+    }
+    const conversationStatus = kcConversation?.status || '';
+    const hasDraft = thread.some(m => m.direction === 'outbound' && m.status === 'draft');
+    const routing = events.some(e => e.event_type === 'outbound_ready' && (e.status === 'pending' || e.status === 'claimed'));
+    const thinking = conversationStatus === 'waiting_agent' || conversationStatus === 'agent_processing'
+      || events.some(e => e.event_type === 'response_needed' && (e.status === 'pending' || e.status === 'claimed'));
+
+    if (hasDraft || routing) {
+      statusEl.innerHTML = '<span class="agent-thinking">Routing reply…</span>';
+    } else if (thinking) {
+      statusEl.innerHTML = '<span class="agent-thinking">Agent is thinking…</span>';
+    } else {
+      statusEl.textContent = '';
+    }
+  }
+
+  function applyDetail(payload, forceScroll) {
+    if (!payload) return;
+    kcStatus = payload.kc_status || 'missing';
+    missingPolicy = payload.missing_kc_policy || 'recreate';
+    if (payload.kc_conversation && payload.kc_conversation.id) {
+      kcConvId = payload.kc_conversation.id;
+    }
+    renderThread(payload.thread || [], forceScroll);
+    renderStatus(payload.kc_conversation || {}, payload.thread || [], payload.events || []);
+    setHistoryEntries(payload.input_history || []);
+  }
+
+  async function refreshDetail(forceScroll) {
     try {
-      const res = await fetch(`/api/conversation/${convId}`, { cache: 'no-store' });
+      const res = await fetch(`/api/conversation/${convId}/detail`, { cache: 'no-store' });
       if (!res.ok) return;
-      const { conversation, thread } = await res.json();
-
-      // Update status badges on existing messages.
-      thread.forEach(m => { if (knownIds.has(m.id)) refreshBadge(m.id, m.status); });
-
-      // Append new messages.
-      const newMsgs = thread.filter(m => !knownIds.has(m.id));
-      const endEl = document.getElementById('chat-end');
-      newMsgs.forEach(m => {
-        knownIds.add(m.id);
-        msgsEl.insertBefore(makeBubble(m), endEl);
-      });
-      if (newMsgs.length) scrollDown(false);
-
-      // Agent status indicator — based on KC message statuses.
-      const hasDraft = thread.some(m => m.direction === 'outbound' && m.status === 'draft');
-      const lastMsg  = thread.length > 0 ? thread[thread.length - 1] : null;
-      if (hasDraft) {
-        statusEl.innerHTML = '<span class="agent-thinking">Routing reply…</span>';
-      } else if (lastMsg && lastMsg.direction === 'inbound') {
-        statusEl.innerHTML = '<span class="agent-thinking">Agent is thinking…</span>';
-      } else {
-        statusEl.textContent = '';
-      }
+      applyDetail(await res.json(), forceScroll);
     } catch (_) { /* ignore */ }
   }
 
-  // Initial position + start polling.
-  scrollDown(true);
-  setInterval(poll, 3000);
+  function connectStream() {
+    if (eventSource) {
+      eventSource.close();
+    }
+    eventSource = new EventSource('/api/events/stream');
+    eventSource.onmessage = function (event) {
+      try {
+        const payload = JSON.parse(event.data);
+        if (!payload || payload.type === 'stream_error') return;
+        if (payload.conversation_id && kcConvId && payload.conversation_id !== kcConvId) return;
+        refreshDetail(false);
+      } catch (_) { /* ignore */ }
+    };
+    eventSource.onerror = function () {
+      try { eventSource.close(); } catch (_) { /* ignore */ }
+      eventSource = null;
+      window.setTimeout(function () {
+        if (!eventSource) connectStream();
+      }, 3000);
+    };
+  }
 
-  // Enter to submit, Shift+Enter for new line.
-  document.getElementById('chat-input').addEventListener('keydown', function (e) {
+  async function sendMessage() {
+    const content = inputEl.value.trim();
+    if (!content) return;
+
+    inputEl.disabled = true;
+    sendBtn.disabled = true;
+    statusEl.innerHTML = '<span class="agent-thinking">Sending…</span>';
+
+    try {
+      const res = await fetch(`/api/conversation/${convId}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ content, if_missing: missingPolicy })
+      });
+      if (!res.ok) {
+        let detail = `HTTP ${res.status}`;
+        try {
+          const err = await res.json();
+          detail = err.detail || detail;
+        } catch (_) { /* ignore */ }
+        throw new Error(detail);
+      }
+      const payload = await res.json();
+      inputEl.value = '';
+      historyDraft = '';
+      applyDetail(payload.detail, true);
+    } catch (err) {
+      statusEl.textContent = err?.message || 'Send failed.';
+    } finally {
+      inputEl.disabled = false;
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+  }
+
+  function isCaretOnFirstLine() {
+    return inputEl.selectionStart === inputEl.selectionEnd
+      && !inputEl.value.slice(0, inputEl.selectionStart).includes('\n');
+  }
+
+  function isCaretOnLastLine() {
+    return inputEl.selectionStart === inputEl.selectionEnd
+      && !inputEl.value.slice(inputEl.selectionEnd).includes('\n');
+  }
+
+  function loadHistoryEntry(index) {
+    inputEl.value = historyEntries[index] || '';
+    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+  }
+
+  function handleHistoryNavigation(event) {
+    if (!historyEntries.length || event.altKey || event.ctrlKey || event.metaKey) {
+      return false;
+    }
+    if (event.key === 'ArrowUp' && isCaretOnFirstLine()) {
+      event.preventDefault();
+      if (historyCursor === historyEntries.length) {
+        historyDraft = inputEl.value;
+      }
+      if (historyCursor > 0) {
+        historyCursor -= 1;
+        loadHistoryEntry(historyCursor);
+      }
+      return true;
+    }
+    if (event.key === 'ArrowDown' && isCaretOnLastLine()) {
+      if (historyCursor === historyEntries.length) {
+        return false;
+      }
+      event.preventDefault();
+      historyCursor += 1;
+      if (historyCursor >= historyEntries.length) {
+        historyCursor = historyEntries.length;
+        inputEl.value = historyDraft;
+        inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length);
+      } else {
+        loadHistoryEntry(historyCursor);
+      }
+      return true;
+    }
+    return false;
+  }
+
+  formEl.addEventListener('submit', function (e) {
+    e.preventDefault();
+    sendMessage();
+  });
+
+  inputEl.addEventListener('keydown', function (e) {
+    if (handleHistoryNavigation(e)) {
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      document.getElementById('chat-form').requestSubmit();
+      sendMessage();
     }
   });
+
+  document.addEventListener('visibilitychange', function () {
+    if (!document.hidden) refreshDetail(false);
+  });
+  window.addEventListener('focus', function () { refreshDetail(false); });
+
+  scrollDown(true);
+  connectStream();
+  refreshDetail(false);
+  refreshTimer = setInterval(function () { refreshDetail(false); }, 30000);
 })();
 </script>
 {% endblock %}

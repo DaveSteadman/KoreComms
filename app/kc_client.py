@@ -140,6 +140,14 @@ def get_conversation(kc_conversation_id: int) -> dict | None:
     return json.loads(body)
 
 
+def get_conversation_detail(kc_conversation_id: int) -> dict | None:
+    """Return conversation, messages, and events in one KC round-trip."""
+    status_code, body = _get(f"/conversations/{kc_conversation_id}/detail")
+    if status_code == 404 or not body:
+        return None
+    return json.loads(body)
+
+
 def delete_conversation(kc_conversation_id: int) -> None:
     _delete(f"/conversations/{kc_conversation_id}")
 
@@ -175,6 +183,23 @@ def get_messages(
     if status_code == 404 or not body:
         return []
     return json.loads(body)
+
+
+def get_input_history(kc_conversation_id: int) -> list[str]:
+    """Return stored input-history entries for a KC conversation."""
+    status_code, body = _get(f"/conversations/{kc_conversation_id}/input-history")
+    if status_code == 404 or not body:
+        return []
+    payload = json.loads(body)
+    entries = payload.get("entries", [])
+    return entries if isinstance(entries, list) else []
+
+
+def append_input_history(kc_conversation_id: int, text: str) -> list[str]:
+    """Append a prompt to KC input history and return the updated entries."""
+    payload = _patch(f"/conversations/{kc_conversation_id}/input-history", {"text": text})
+    entries = payload.get("entries", [])
+    return entries if isinstance(entries, list) else []
 
 
 def mark_message_sent(kc_message_id: int) -> None:

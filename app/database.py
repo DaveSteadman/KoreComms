@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS interfaces (
 CREATE TABLE IF NOT EXISTS conversations (
     id                 INTEGER PRIMARY KEY AUTOINCREMENT,
     interface_id       INTEGER NOT NULL REFERENCES interfaces(id) ON DELETE CASCADE,
+    conversation_name  TEXT,
     kc_conversation_id INTEGER,
     external_thread_id TEXT,
     subject            TEXT,
@@ -96,6 +97,7 @@ CREATE TABLE IF NOT EXISTS activity_log (
 CREATE INDEX IF NOT EXISTS idx_convs_iface        ON conversations(interface_id);
 CREATE INDEX IF NOT EXISTS idx_convs_kc_id        ON conversations(kc_conversation_id);
 CREATE INDEX IF NOT EXISTS idx_convs_thread       ON conversations(external_thread_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_convs_name  ON conversations(conversation_name);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_ext_msg_id  ON external_messages(external_message_id);
 CREATE INDEX IF NOT EXISTS idx_ext_msg_conv       ON external_messages(conversation_id, direction);
 """
@@ -106,11 +108,18 @@ def init_db() -> None:
     with get_db() as conn:
         # Migration: add kc_conversation_id to conversations if this is an existing DB.
         conv_cols = {r[1] for r in conn.execute("PRAGMA table_info(conversations)")}
+        if conv_cols and "conversation_name" not in conv_cols:
+            conn.execute("ALTER TABLE conversations ADD COLUMN conversation_name TEXT")
         if conv_cols and "kc_conversation_id" not in conv_cols:
             conn.execute("ALTER TABLE conversations ADD COLUMN kc_conversation_id INTEGER")
         if conv_cols and "subject" not in conv_cols:
             conn.execute("ALTER TABLE conversations ADD COLUMN subject TEXT")
         conn.executescript(_SCHEMA)
+        conn.execute(
+            "UPDATE conversations "
+            "SET conversation_name = COALESCE(NULLIF(external_thread_id, ''), 'kccomms:' || id) "
+            "WHERE conversation_name IS NULL OR conversation_name = ''"
+        )
         # Ensure the Manual interface always exists.
         row = conn.execute("SELECT id FROM interfaces WHERE type='manual' LIMIT 1").fetchone()
         if row is None:
@@ -215,17 +224,24 @@ def conversation_list(limit: int = 100, offset: int = 0) -> list[dict]:
 
 def conversation_create(
     interface_id:       int,
-    kc_conversation_id: int,
+    kc_conversation_id: int | None = None,
     external_thread_id: str | None = None,
     subject:            str | None = None,
+    conversation_name:  str | None = None,
 ) -> int:
     with get_db() as conn:
         cur = conn.execute(
             "INSERT INTO conversations "
-            "(interface_id, kc_conversation_id, external_thread_id, subject, created_at) "
-            "VALUES (?,?,?,?,?)",
-            (interface_id, kc_conversation_id, external_thread_id, subject, _now()),
+            "(interface_id, conversation_name, kc_conversation_id, external_thread_id, subject, created_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (interface_id, conversation_name, kc_conversation_id, external_thread_id, subject, _now()),
         )
+        if not conversation_name:
+            conversation_name = f"kccomms:{cur.lastrowid}"
+            conn.execute(
+                "UPDATE conversations SET conversation_name=? WHERE id=?",
+                (conversation_name, cur.lastrowid),
+            )
     return cur.lastrowid  # type: ignore[return-value]
 
 
@@ -240,7 +256,7 @@ def conversation_get(conv_id: int) -> dict | None:
     return _row_to_dict(row)
 
 
-def conversation_set_kc_id(conv_id: int, kc_conversation_id: int) -> None:
+def conversation_set_kc_id(conv_id: int, kc_conversation_id: int | None) -> None:
     with get_db() as conn:
         conn.execute(
             "UPDATE conversations SET kc_conversation_id=? WHERE id=?",
@@ -248,11 +264,32 @@ def conversation_set_kc_id(conv_id: int, kc_conversation_id: int) -> None:
         )
 
 
+def conversation_set_name(conv_id: int, conversation_name: str) -> None:
+    with get_db() as conn:
+        conn.execute(
+            "UPDATE conversations SET conversation_name=? WHERE id=?",
+            (conversation_name, conv_id),
+        )
+
+
 def conversation_get_by_external_thread(external_thread_id: str) -> dict | None:
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM conversations WHERE external_thread_id=? LIMIT 1",
+            "SELECT c.*, i.name AS interface_name, i.type AS interface_type "
+            "FROM conversations c JOIN interfaces i ON i.id = c.interface_id "
+            "WHERE c.external_thread_id=? LIMIT 1",
             (external_thread_id,),
+        ).fetchone()
+    return _row_to_dict(row)
+
+
+def conversation_get_by_name(conversation_name: str) -> dict | None:
+    with get_db() as conn:
+        row = conn.execute(
+            "SELECT c.*, i.name AS interface_name, i.type AS interface_type "
+            "FROM conversations c JOIN interfaces i ON i.id = c.interface_id "
+            "WHERE c.conversation_name=? LIMIT 1",
+            (conversation_name,),
         ).fetchone()
     return _row_to_dict(row)
 
@@ -260,7 +297,9 @@ def conversation_get_by_external_thread(external_thread_id: str) -> dict | None:
 def conversation_get_by_kc_id(kc_conversation_id: int) -> dict | None:
     with get_db() as conn:
         row = conn.execute(
-            "SELECT * FROM conversations WHERE kc_conversation_id=? LIMIT 1",
+            "SELECT c.*, i.name AS interface_name, i.type AS interface_type "
+            "FROM conversations c JOIN interfaces i ON i.id = c.interface_id "
+            "WHERE c.kc_conversation_id=? LIMIT 1",
             (kc_conversation_id,),
         ).fetchone()
     return _row_to_dict(row)
