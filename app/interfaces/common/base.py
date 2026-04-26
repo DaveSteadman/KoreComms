@@ -1,9 +1,9 @@
 """Abstract base class for all KoreComms interface adapters.
 
 To add a new interface type:
-  1. Subclass BaseInterface in a new module under app/interfaces/.
-  2. Implement poll(), route_reply(), and send_new().
-  3. Register the type string in app/interfaces/registry.py.
+  1. Create a package under app/interfaces/ for that type.
+  2. Subclass BaseInterface in that package.
+  3. Register the type string in app/interfaces/common/registry.py.
 """
 from __future__ import annotations
 

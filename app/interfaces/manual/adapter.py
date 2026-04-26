@@ -8,24 +8,20 @@ from __future__ import annotations
 
 import uuid
 
-from app.interfaces.base import BaseInterface
+from app.interfaces.common.base import BaseInterface
 
 
 class ManualInterface(BaseInterface):
 
     def poll(self) -> list[dict]:
-        # Messages arrive via the WebUI compose form, not by polling.
         return []
 
     def route_reply(self, conversation_id: int, content: str) -> None:
-        # Manual replies have no external channel to deliver to.
-        # The content already exists in KoreConversation; nothing to transmit.
         pass
 
     def send_new(self, recipient: str, subject: str, content: str) -> dict:
-        # Synthesise a unique thread reference for a manual outbound.
         thread_id = f"manual:{uuid.uuid4()}"
         return {
-            "external_thread_id":  thread_id,
+            "external_thread_id": thread_id,
             "external_message_id": f"{thread_id}:0",
         }

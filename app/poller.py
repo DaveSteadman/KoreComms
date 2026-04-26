@@ -18,7 +18,7 @@ import time
 
 from app import database as db, kc_client
 from app.config import cfg
-from app.interfaces.registry import build_adapter
+from app.interfaces.common.registry import build_adapter
 
 logger = logging.getLogger(__name__)
 

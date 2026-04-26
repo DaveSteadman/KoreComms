@@ -16,7 +16,7 @@ from pydantic import BaseModel
 
 from app import crypto, database as db, kc_client, poller, queue_manager
 from app.config import cfg
-from app.interfaces.registry import REGISTRY, build_adapter
+from app.interfaces.common.registry import REGISTRY, build_adapter
 from app.version import __version__
 
 logger = logging.getLogger(__name__)
@@ -26,6 +26,18 @@ _MISSING_KC_POLICIES = {"abort", "recreate"}
 
 class MissingKoreConversationError(RuntimeError):
     pass
+
+
+def _parse_id_list(value: str) -> list[str]:
+    return [part.strip() for part in value.replace(",", "\n").splitlines() if part.strip()]
+
+
+def _ids_to_text(value: object) -> str:
+    if isinstance(value, list):
+        return "\n".join(str(item) for item in value if str(item).strip())
+    if isinstance(value, str):
+        return value
+    return ""
 
 _TEMPLATES = Path(__file__).parent / "templates"
 templates = Jinja2Templates(directory=str(_TEMPLATES))
@@ -196,6 +208,8 @@ def ui_connections_create(
     request:       Request,
     iface_type:    str = Form(...),
     name:          str = Form(...),
+    bot_token:     str = Form(default=""),
+    channel_ids:   str = Form(default=""),
     client_id:     str = Form(default=""),
     client_secret: str = Form(default=""),
     poll_interval: int = Form(default=60),
@@ -206,6 +220,9 @@ def ui_connections_create(
     if iface_type == "gmail":
         config["client_id"]     = crypto.encrypt(client_id)     if client_id     else ""
         config["client_secret"] = crypto.encrypt(client_secret) if client_secret else ""
+    if iface_type == "discord":
+        config["bot_token"] = crypto.encrypt(bot_token) if bot_token else ""
+        config["channel_ids"] = _parse_id_list(channel_ids)
     iface_id = db.interface_create(iface_type, name, config)
     return RedirectResponse(f"/connections/{iface_id}", status_code=303)
 
@@ -224,6 +241,7 @@ def ui_connections_edit(request: Request, iface_id: int):
             iface_type     = iface["type"],
             config         = config,
             poll_interval  = config.get("poll_interval", cfg.get("poll_interval", 60)),
+            discord_channel_ids_text = _ids_to_text(config.get("channel_ids", [])),
             gmail_authorized = bool(config.get("refresh_token")),
         ),
     )
@@ -234,6 +252,8 @@ def ui_connections_update(
     request:       Request,
     iface_id:      int,
     name:          str = Form(...),
+    bot_token:     str = Form(default=""),
+    channel_ids:   str = Form(default=""),
     client_id:     str = Form(default=""),
     client_secret: str = Form(default=""),
     poll_interval: int = Form(default=60),
@@ -249,6 +269,10 @@ def ui_connections_update(
             existing["client_id"]     = crypto.encrypt(client_id)
         if client_secret:
             existing["client_secret"] = crypto.encrypt(client_secret)
+    if iface["type"] == "discord":
+        if bot_token:
+            existing["bot_token"] = crypto.encrypt(bot_token)
+        existing["channel_ids"] = _parse_id_list(channel_ids)
     db.interface_update(iface_id, name, existing, enabled == "on")
     return RedirectResponse("/connections", status_code=303)
 

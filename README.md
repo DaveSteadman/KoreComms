@@ -26,9 +26,10 @@ The agent never talks to Gmail, Outlook, or any other channel directly. KoreComm
 - **Full conversation threading** — conversation state and message history live in KoreConversation, and KoreComms reads the canonical thread on demand
 - **Local-first conversation identity** — KoreComms keeps its own conversation rows and uses a stable `conversation_name` to find or recreate the matching agent-side conversation
 - **Chat UI** — per-conversation view with event-driven live updates, command-style input history on `Up` / `Down`, and a compose bar (`Enter` to send, `Shift+Enter` for new line)
+- **Discord integration** — bot-token polling for configured channels or threads, de-duplication by Discord message ID, and reply routing back into the same channel
 - **Gmail integration** — OAuth2 polling, reply-in-thread, de-duplication by Gmail message ID
 - **Manual interface** — inject a synthetic message via the WebUI; always present, zero external dependencies
-- **Adapter pattern** — adding a new channel (Outlook, SMS, Slack…) is one file and one registry entry; no core changes
+- **Adapter pattern** — each interface type lives in its own package under `app/interfaces/`, with shared abstractions in `app/interfaces/common/`
 - **Credentials encrypted at rest** — OAuth tokens and API secrets stored with `cryptography` (Fernet)
 - **Dark amber terminal UI** — monospace, minimal, consistent with the KoreData / MiniAgentFramework aesthetic
 
@@ -41,6 +42,7 @@ The agent never talks to Gmail, Outlook, or any other channel directly. KoreComm
 - **Jinja2** templates (server-rendered WebUI)
 - **google-api-python-client** for Gmail
 - **cryptography** for at-rest encryption
+- **Discord REST API** via the Python standard library for Discord bot access
 
 ---
 
@@ -88,6 +90,13 @@ Edit `config/default.json` (created automatically on first run with defaults):
 | `missing_kc_conversation_policy` | `recreate` | What to do if the linked KoreConversation record is gone: `recreate` or `abort` |
 | `data_dir` | `Data` | SQLite database directory |
 | `maf_url` | _(empty)_ | MiniAgentFramework base URL — enables agent session cleanup on conversation delete |
+
+Discord connection settings live per interface in the WebUI:
+
+- `bot_token`: encrypted at rest; used for Discord REST API calls
+- `channel_ids`: list of channel or thread IDs to poll for inbound messages
+
+For `POST /api/send`, use the Discord channel or thread ID as `recipient`. Discord does not use a subject line; if one is provided it is prefixed into the outbound message body.
 
 ---
 
@@ -142,8 +151,8 @@ Only one message is in `agent_processing` for a conversation at a time. KoreConv
 
 ## Adding a New Interface Type
 
-1. Create `app/interfaces/mytype.py` implementing `BaseInterface` (`poll`, `send_reply`, `send_new`)
-2. Register it in `app/interfaces/registry.py`: `REGISTRY["mytype"] = MyTypeInterface`
+1. Create `app/interfaces/mytype/` and implement `BaseInterface` there (`poll`, `send_reply`, `send_new`)
+2. Register it in `app/interfaces/common/registry.py`: `REGISTRY["mytype"] = MyTypeInterface`
 3. Add any credential fields to the connection edit form in `connection_edit.html`
 
 No changes to KoreComms routing logic are required.

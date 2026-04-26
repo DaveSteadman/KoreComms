@@ -5,14 +5,14 @@ To register a new interface type, add it to REGISTRY.
 """
 from __future__ import annotations
 
-import json
-
-from app.interfaces.base import BaseInterface
+from app.interfaces.common.base import BaseInterface
+from app.interfaces.discord import DiscordInterface
 from app.interfaces.gmail import GmailInterface
 from app.interfaces.manual import ManualInterface
 
 REGISTRY: dict[str, type[BaseInterface]] = {
     "manual": ManualInterface,
+    "discord": DiscordInterface,
     "gmail": GmailInterface,
 }
 
